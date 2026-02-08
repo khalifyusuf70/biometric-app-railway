@@ -1,7 +1,7 @@
 {
-  "name": "jubaland-multi-forces",
-  "version": "2.0.0",
-  "description": "Jubaland Multi-Forces Biometric Database System - Railway Deployment",
+  "name": "biometric-app-railway",
+  "version": "1.0.0",
+  "description": "Jubaland Multi-Forces Biometric System",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -9,8 +9,8 @@
   },
   "dependencies": {
     "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "pg": "^8.11.3"
+    "pg": "^8.11.3",
+    "cors": "^2.8.5"
   },
   "engines": {
     "node": "18.x",
@@ -20,7 +20,6 @@
     "biometric",
     "military",
     "database",
-    "railway",
     "jubaland"
   ],
   "author": "Jubaland Statehouse",
