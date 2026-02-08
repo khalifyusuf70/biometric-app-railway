@@ -11,7 +11,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(express.static('public'));
 
-// PostgreSQL connection
+// ================== RAILWAY POSTGRESQL CONNECTION ==================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
@@ -21,10 +21,12 @@ const pool = new Pool({
 async function testConnection() {
   try {
     const client = await pool.connect();
-    console.log('✅ PostgreSQL connected successfully');
+    console.log('✅ PostgreSQL connected successfully to Railway');
+    console.log(`📊 Connected to: ${process.env.DATABASE_URL ? process.env.DATABASE_URL.split('@')[1] : 'Railway PostgreSQL'}`);
     client.release();
   } catch (error) {
     console.log('❌ Database connection failed:', error.message);
+    console.log('⚠️ Make sure DATABASE_URL is set in Railway environment variables');
   }
 }
 testConnection();
@@ -1741,7 +1743,7 @@ app.get('/api/health', async (req, res) => {
 
 app.get('/api', (req, res) => {
   res.json({ 
-    message: 'Jubaland Multi-Forces Database System',
+    message: 'Jubaland Multi-Forces Database System - Railway Version',
     available_forces: FORCES,
     endpoints: {
       setup: '/api/setup-forces (creates tables for all forces)',
