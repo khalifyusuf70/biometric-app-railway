@@ -22,14 +22,201 @@ async function testConnection() {
   try {
     const client = await pool.connect();
     console.log('✅ PostgreSQL connected successfully to Railway');
-    console.log(`📊 Connected to: ${process.env.DATABASE_URL ? process.env.DATABASE_URL.split('@')[1] : 'Railway PostgreSQL'}`);
+    
+    // Log database info (without exposing full URL)
+    if (process.env.DATABASE_URL) {
+      const url = process.env.DATABASE_URL;
+      const safeUrl = url.replace(/:\/\/.*@/, '://****:****@');
+      console.log(`📊 Connected to: ${safeUrl}`);
+      
+      // Extract hostname for debugging
+      const match = url.match(/@([^:]+):(\d+)\//);
+      if (match) {
+        console.log(`🌐 Host: ${match[1]}, Port: ${match[2]}`);
+      }
+    }
+    
+    // Test query to verify connection
+    const result = await client.query('SELECT NOW() as server_time');
+    console.log(`⏰ Database server time: ${result.rows[0].server_time}`);
+    
     client.release();
   } catch (error) {
     console.log('❌ Database connection failed:', error.message);
     console.log('⚠️ Make sure DATABASE_URL is set in Railway environment variables');
+    
+    // Log the DATABASE_URL (sanitized) for debugging
+    if (process.env.DATABASE_URL) {
+      const url = process.env.DATABASE_URL;
+      const safeUrl = url.replace(/:\/\/.*@/, '://****:****@');
+      console.log(`🔍 Current DATABASE_URL: ${safeUrl}`);
+    } else {
+      console.log('🔍 DATABASE_URL environment variable is NOT set');
+    }
   }
 }
 testConnection();
+
+// ================== DEBUG ENDPOINTS ==================
+
+// 1. Database connection test endpoint
+app.get('/api/test-db', async (req, res) => {
+  try {
+    // Test basic connection
+    const timeResult = await pool.query('SELECT NOW() as current_time');
+    
+    // Check if soldiers table exists
+    const tablesResult = await pool.query(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public' 
+      AND table_name LIKE '%soldiers%'
+      ORDER BY table_name
+    `);
+    
+    // Count soldiers in each table
+    const counts = {};
+    for (const row of tablesResult.rows) {
+      try {
+        const countResult = await pool.query(`SELECT COUNT(*) as count FROM ${row.table_name}`);
+        counts[row.table_name] = parseInt(countResult.rows[0].count);
+      } catch (err) {
+        counts[row.table_name] = `Error: ${err.message}`;
+      }
+    }
+    
+    res.json({
+      success: true,
+      database: 'connected',
+      current_time: timeResult.rows[0].current_time,
+      available_tables: tablesResult.rows.map(row => row.table_name),
+      table_counts: counts,
+      total_soldiers: Object.values(counts).reduce((sum, count) => sum + (typeof count === 'number' ? count : 0), 0)
+    });
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error.message,
+      connection_test: 'failed'
+    });
+  }
+});
+
+// 2. Check specific soldiers count
+app.get('/api/check-soldiers', async (req, res) => {
+  try {
+    // Check all possible soldier tables
+    const tablesToCheck = [
+      'soldiersrepository',
+      'statehouse_soldiers',
+      'police_soldiers', 
+      'darawish_soldiers',
+      'nawadsugida_soldiers'
+    ];
+    
+    const results = {};
+    let totalSoldiers = 0;
+    
+    for (const table of tablesToCheck) {
+      try {
+        const result = await pool.query(`SELECT COUNT(*) as count FROM ${table}`);
+        const count = parseInt(result.rows[0].count);
+        results[table] = count;
+        totalSoldiers += count;
+      } catch (err) {
+        // Table might not exist
+        results[table] = `Table not found: ${err.message}`;
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: `Found ${totalSoldiers} soldiers total across all tables`,
+      total_soldiers: totalSoldiers,
+      table_counts: results
+    });
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error.message,
+      hint: 'Table might not exist or connection issue'
+    });
+  }
+});
+
+// 3. Environment variables dump (sanitized)
+app.get('/api/env', (req, res) => {
+  const env = {
+    NODE_ENV: process.env.NODE_ENV,
+    PORT: process.env.PORT,
+    DATABASE_URL_SET: !!process.env.DATABASE_URL,
+    DATABASE_URL_LENGTH: process.env.DATABASE_URL ? process.env.DATABASE_URL.length : 0,
+    // Sanitize DATABASE_URL for security
+    DATABASE_URL_SANITIZED: process.env.DATABASE_URL ? 
+      process.env.DATABASE_URL.replace(/:\/\/.*@/, '://****:****@') : 
+      'Not set'
+  };
+  
+  res.json({ success: true, environment: env });
+});
+
+// 4. Force-specific soldier count
+app.get('/api/soldiers-count/:force', async (req, res) => {
+  try {
+    const { force } = req.params;
+    
+    // Force-specific table names
+    const forceTables = {
+      'statehouse': 'statehouse_soldiers',
+      'police': 'police_soldiers',
+      'darawish': 'darawish_soldiers',
+      'nawadsugida': 'nawadsugida_soldiers'
+    };
+    
+    const tableName = forceTables[force];
+    
+    if (!tableName) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid force: ${force}. Valid forces: ${Object.keys(forceTables).join(', ')}`
+      });
+    }
+    
+    let count = 0;
+    let message = '';
+    
+    try {
+      const result = await pool.query(`SELECT COUNT(*) as count FROM ${tableName}`);
+      count = parseInt(result.rows[0].count);
+      message = `Found ${count} soldiers in ${force}`;
+    } catch (tableError) {
+      // Try soldiersrepository for backward compatibility (statehouse only)
+      if (force === 'statehouse') {
+        try {
+          const result = await pool.query('SELECT COUNT(*) as count FROM soldiersrepository');
+          count = parseInt(result.rows[0].count);
+          message = `Found ${count} soldiers in old soldiersrepository table`;
+        } catch (oldTableError) {
+          message = `No table found for ${force}: ${oldTableError.message}`;
+        }
+      } else {
+        message = `Table ${tableName} not found: ${tableError.message}`;
+      }
+    }
+    
+    res.json({
+      success: true,
+      force: force,
+      count: count,
+      message: message
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
 
 // ================== MULTI-FORCE SETUP ==================
 
@@ -692,7 +879,7 @@ app.put('/api/soldiers/:force/:id', async (req, res) => {
             net_salary = $10, tel_number = $11, clan = $12, guarantor_name = $13, guarantor_phone = $14,
             emergency_contact_name = $15, emergency_contact_phone = $16, home_address = $17,
             blood_group = $18, gun_number = $19, status = $20, updated_at = CURRENT_TIMESTAMP
-          WHERE soldier_id = $21
+            WHERE soldier_id = $21
           RETURNING *
         `;
         result = await pool.query(oldQuery, values);
@@ -1746,6 +1933,12 @@ app.get('/api', (req, res) => {
     message: 'Jubaland Multi-Forces Database System - Railway Version',
     available_forces: FORCES,
     endpoints: {
+      debug: {
+        test_db: '/api/test-db (test database connection)',
+        check_soldiers: '/api/check-soldiers (check soldier counts)',
+        env: '/api/env (view environment variables)',
+        soldiers_count: '/api/soldiers-count/:force (get specific force count)'
+      },
       setup: '/api/setup-forces (creates tables for all forces)',
       migrate_fiat_gadidka: '/api/migrate-fiat-to-gadidka (migrate soldiers from Fiat to Gadidka)',
       migrate: '/api/migrate-data (migrate old data to new system)',
@@ -1791,4 +1984,7 @@ app.listen(PORT, () => {
   console.log(`   1. http://localhost:${PORT}/api/setup-forces (creates tables)`);
   console.log(`   2. http://localhost:${PORT}/api/migrate-data (migrates old data)`);
   console.log(`   3. http://localhost:${PORT}/api/migrate-fiat-to-gadidka (migrate Fiat soldiers to Gadidka)`);
+  console.log(`\n🔍 Debug endpoints:`);
+  console.log(`   • /api/test-db (test database connection)`);
+  console.log(`   • /api/check-soldiers (check soldier counts)`);
 });
