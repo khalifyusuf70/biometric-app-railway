@@ -649,10 +649,19 @@ app.post('/api/soldiers/:force', async (req, res) => {
   }
 });
 
-// 4. Get all soldiers from specific force (with backward compatibility for statehouse)
+// 4. Get all soldiers from specific force (with backward compatibility for statehouse) - FIXED VERSION
 app.get('/api/soldiers/:force', async (req, res) => {
   try {
     const { force } = req.params;
+    
+    // Validate force parameter
+    if (!FORCES[force]) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid force: ${force}. Available forces: ${Object.keys(FORCES).join(', ')}`
+      });
+    }
+
     const tableName = getForceTableName(force);
     
     // Check if force table exists
@@ -664,7 +673,7 @@ app.get('/api/soldiers/:force', async (req, res) => {
     `, [tableName]);
 
     const tableExists = tableCheck.rows[0].exists;
-    
+
     if (!tableExists && force === 'statehouse') {
       // If statehouse table doesn't exist but old table does, use old table
       const oldTableCheck = await pool.query(`
@@ -675,30 +684,140 @@ app.get('/api/soldiers/:force', async (req, res) => {
       `);
       
       if (oldTableCheck.rows[0].exists) {
-        const result = await pool.query('SELECT * FROM soldiersRepository ORDER BY soldier_id');
+        try {
+          // Use specific columns to avoid issues
+          const result = await pool.query(`
+            SELECT
+              soldier_id,
+              full_names,
+              date_of_birth,
+              gender,
+              rank_position,
+              date_of_enlistment,
+              horin_platoon,
+              horin_commander,
+              net_salary,
+              tel_number,
+              clan,
+              guarantor_name,
+              guarantor_phone,
+              emergency_contact_name,
+              emergency_contact_phone,
+              home_address,
+              blood_group,
+              gun_number,
+              status,
+              created_at,
+              updated_at
+            FROM soldiersRepository
+            ORDER BY soldier_id
+          `);
+          
+          // Add force_type to each soldier
+          const soldiersWithForce = result.rows.map(soldier => ({
+            ...soldier,
+            force_type: 'statehouse'
+          }));
+          
+          return res.json({
+            success: true,
+            force: FORCES[force],
+            count: soldiersWithForce.length,
+            soldiers: soldiersWithForce
+          });
+        } catch (oldTableError) {
+          return res.status(500).json({
+            success: false,
+            error: `Error reading old table: ${oldTableError.message}`
+          });
+        }
+      }
+      
+      return res.status(404).json({
+        success: false,
+        error: `Table ${tableName} not found for ${FORCES[force]}`
+      });
+    }
+
+    if (!tableExists) {
+      return res.status(404).json({
+        success: false,
+        error: `Table ${tableName} not found for ${FORCES[force]}`
+      });
+    }
+
+    try {
+      // Use specific columns instead of SELECT * to avoid issues
+      const result = await pool.query(`
+        SELECT
+          soldier_id,
+          force_type,
+          full_names,
+          date_of_birth,
+          gender,
+          photo,
+          fingerprint_data,
+          rank_position,
+          date_of_enlistment,
+          horin_platoon,
+          horin_commander,
+          net_salary,
+          tel_number,
+          clan,
+          guarantor_name,
+          guarantor_phone,
+          emergency_contact_name,
+          emergency_contact_phone,
+          home_address,
+          blood_group,
+          gun_number,
+          status,
+          created_at,
+          updated_at
+        FROM ${tableName}
+        ORDER BY soldier_id
+      `);
+      
+      res.json({
+        success: true,
+        force: FORCES[force],
+        count: result.rows.length,
+        soldiers: result.rows
+      });
+    } catch (queryError) {
+      console.error(`Error querying ${tableName}:`, queryError);
+      
+      // Try with fewer columns as fallback
+      try {
+        const simpleResult = await pool.query(`
+          SELECT
+            soldier_id,
+            force_type,
+            full_names,
+            date_of_birth,
+            gender
+          FROM ${tableName}
+          ORDER BY soldier_id
+          LIMIT 100
+        `);
         
-        // Add force_type to each soldier
-        const soldiersWithForce = result.rows.map(soldier => ({
-          ...soldier,
-          force_type: 'statehouse'
-        }));
-        
-        return res.json({
+        res.json({
           success: true,
           force: FORCES[force],
-          soldiers: soldiersWithForce
+          count: simpleResult.rows.length,
+          soldiers: simpleResult.rows,
+          note: 'Showing limited columns due to data issues'
+        });
+      } catch (simpleError) {
+        res.status(500).json({
+          success: false,
+          error: `Database error: ${simpleError.message}`,
+          hint: 'Check if table structure matches expected columns'
         });
       }
     }
-    
-    const result = await pool.query(`SELECT * FROM ${tableName} ORDER BY soldier_id`);
-    
-    res.json({
-      success: true,
-      force: FORCES[force],
-      soldiers: result.rows
-    });
   } catch (error) {
+    console.error('Error in /api/soldiers/:force:', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -1554,6 +1673,136 @@ app.get('/api/migrate-data', async (req, res) => {
   }
 });
 
+// ================== DIAGNOSTIC ENDPOINTS ==================
+
+// Debug endpoint for statehouse soldiers
+app.get('/api/debug-statehouse', async (req, res) => {
+  try {
+    // Test 1: Check table structure
+    const columns = await pool.query(`
+      SELECT column_name, data_type, character_maximum_length
+      FROM information_schema.columns
+      WHERE table_name = 'statehouse_soldiers'
+      ORDER BY ordinal_position
+    `);
+
+    // Test 2: Try to get a few rows with all columns
+    let allColumnsResult;
+    try {
+      allColumnsResult = await pool.query(`
+        SELECT * FROM statehouse_soldiers LIMIT 5
+      `);
+    } catch (starError) {
+      allColumnsResult = { error: starError.message };
+    }
+
+    // Test 3: Try with specific columns
+    const specificColumnsResult = await pool.query(`
+      SELECT
+        soldier_id,
+        full_names,
+        date_of_birth,
+        gender
+      FROM statehouse_soldiers
+      LIMIT 5
+    `);
+
+    // Test 4: Count total
+    const countResult = await pool.query(`
+      SELECT COUNT(*) as total FROM statehouse_soldiers
+    `);
+
+    res.json({
+      success: true,
+      table_structure: columns.rows,
+      select_star_test: allColumnsResult,
+      select_specific_test: {
+        success: true,
+        rows: specificColumnsResult.rows,
+        count: specificColumnsResult.rows.length
+      },
+      total_count: countResult.rows[0].total
+    });
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Simple test endpoint
+app.get('/api/test-simple', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT soldier_id, full_names
+      FROM statehouse_soldiers
+      LIMIT 10
+    `);
+    
+    res.json({
+      success: true,
+      count: result.rows.length,
+      soldiers: result.rows
+    });
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Check for problematic data
+app.get('/api/find-problems', async (req, res) => {
+  try {
+    const problems = [];
+
+    // Check for invalid string lengths
+    const lengthCheck = await pool.query(`
+      SELECT soldier_id, full_names, LENGTH(full_names) as name_length
+      FROM statehouse_soldiers
+      WHERE LENGTH(full_names) > 255 OR LENGTH(full_names) = 0
+      LIMIT 10
+    `);
+    
+    if (lengthCheck.rows.length > 0) {
+      problems.push({
+        type: 'name_length_issues',
+        count: lengthCheck.rows.length,
+        examples: lengthCheck.rows
+      });
+    }
+
+    // Check for null required fields
+    const nullCheck = await pool.query(`
+      SELECT soldier_id, full_names, date_of_birth
+      FROM statehouse_soldiers
+      WHERE full_names IS NULL OR date_of_birth IS NULL
+      LIMIT 10
+    `);
+    
+    if (nullCheck.rows.length > 0) {
+      problems.push({
+        type: 'null_required_fields',
+        count: nullCheck.rows.length,
+        examples: nullCheck.rows
+      });
+    }
+
+    res.json({
+      success: true,
+      problems_found: problems.length > 0,
+      problems: problems
+    });
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // ================== BACKWARD COMPATIBILITY ENDPOINTS ==================
 
 // These endpoints maintain compatibility with the old frontend
@@ -1937,7 +2186,10 @@ app.get('/api', (req, res) => {
         test_db: '/api/test-db (test database connection)',
         check_soldiers: '/api/check-soldiers (check soldier counts)',
         env: '/api/env (view environment variables)',
-        soldiers_count: '/api/soldiers-count/:force (get specific force count)'
+        soldiers_count: '/api/soldiers-count/:force (get specific force count)',
+        debug_statehouse: '/api/debug-statehouse (debug statehouse table)',
+        test_simple: '/api/test-simple (simple query test)',
+        find_problems: '/api/find-problems (find data issues)'
       },
       setup: '/api/setup-forces (creates tables for all forces)',
       migrate_fiat_gadidka: '/api/migrate-fiat-to-gadidka (migrate soldiers from Fiat to Gadidka)',
@@ -1987,4 +2239,6 @@ app.listen(PORT, () => {
   console.log(`\n🔍 Debug endpoints:`);
   console.log(`   • /api/test-db (test database connection)`);
   console.log(`   • /api/check-soldiers (check soldier counts)`);
+  console.log(`   • /api/debug-statehouse (debug statehouse table)`);
+  console.log(`   • /api/test-simple (simple query test)`);
 });
