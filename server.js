@@ -2,6 +2,7 @@ const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -216,6 +217,176 @@ app.get('/api/soldiers-count/:force', async (req, res) => {
       error: error.message
     });
   }
+});
+
+// ================== FILE DEBUGGING ENDPOINT ==================
+
+// Debug endpoint to check file existence
+app.get('/debug-files', (req, res) => {
+  try {
+    const publicPath = path.join(__dirname, 'public');
+    const indexPath = path.join(__dirname, 'public', 'index.html');
+    const publicExists = fs.existsSync(publicPath);
+    const indexExists = fs.existsSync(indexPath);
+    
+    res.json({
+      success: true,
+      __dirname: __dirname,
+      public_path: publicPath,
+      public_exists: publicExists,
+      index_path: indexPath,
+      index_exists: indexExists,
+      files_in_public: publicExists ? fs.readdirSync(publicPath) : 'public folder not found',
+      current_dir_files: fs.readdirSync(__dirname)
+    });
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
+
+// ================== DIRECT ROUTE FOR QUICK ACCESS ==================
+
+// Direct route for root - Quick Access Page
+app.get('/', (req, res) => {
+  res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Jubaland Forces - Quick Access</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+    .container { max-width: 800px; margin: 0 auto; }
+    .header { background: #2c3e50; color: white; padding: 20px; border-radius: 10px 10px 0 0; }
+    .card { background: white; padding: 20px; margin: 20px 0; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    .api-link { background: #e3f2fd; padding: 15px; margin: 10px 0; border-radius: 5px; border-left: 4px solid #2196f3; }
+    .api-link:hover { background: #bbdefb; }
+    a { color: #2196f3; text-decoration: none; font-weight: bold; }
+    a:hover { text-decoration: underline; }
+    .status { padding: 10px; border-radius: 5px; margin: 10px 0; }
+    .status.online { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    .status.offline { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    .forces-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 20px 0; }
+    .force-item { background: #f8f9fa; padding: 15px; border-radius: 5px; text-align: center; }
+    .force-item:hover { background: #e9ecef; }
+    @media (max-width: 600px) {
+      .forces-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🎖️ Jubaland Multi-Forces Database System</h1>
+      <p>Railway Deployment - Quick Access Portal</p>
+    </div>
+    
+    <div class="card">
+      <h3>✅ System Status</h3>
+      <div class="status online">
+        <strong>Database:</strong> Connected<br>
+        <strong>API:</strong> Operational<br>
+        <strong>Frontend:</strong> Loading from public folder
+      </div>
+    </div>
+    
+    <div class="card">
+      <h3>🔗 Quick Links</h3>
+      
+      <div class="api-link">
+        <a href="/api/soldiers/statehouse" target="_blank">👥 View Statehouse Soldiers (972+)</a>
+        <p>View complete list of soldiers with all details</p>
+      </div>
+      
+      <div class="api-link">
+        <a href="/api/executive-dashboard" target="_blank">📊 Executive Dashboard</a>
+        <p>Analytics and statistics for decision making</p>
+      </div>
+      
+      <div class="api-link">
+        <a href="/api" target="_blank">📚 API Documentation</a>
+        <p>Complete API endpoints and usage guide</p>
+      </div>
+      
+      <div class="api-link">
+        <a href="/debug-files" target="_blank">🔍 Debug Files</a>
+        <p>Check if public folder and files exist</p>
+      </div>
+      
+      <div class="api-link">
+        <a href="/api/test-db" target="_blank">🧪 Test Database Connection</a>
+        <p>Verify PostgreSQL connection to Railway</p>
+      </div>
+    </div>
+    
+    <div class="card">
+      <h3>🎖️ Available Forces</h3>
+      <div class="forces-grid">
+        <div class="force-item">
+          <strong>Statehouse Forces</strong><br>
+          <a href="/api/soldiers/statehouse">View Soldiers</a>
+        </div>
+        <div class="force-item">
+          <strong>Police Force</strong><br>
+          <a href="/api/soldiers/police">View Soldiers</a>
+        </div>
+        <div class="force-item">
+          <strong>Darawish Forces</strong><br>
+          <a href="/api/soldiers/darawish">View Soldiers</a>
+        </div>
+        <div class="force-item">
+          <strong>Nawadsugida Forces</strong><br>
+          <a href="/api/soldiers/nawadsugida">View Soldiers</a>
+        </div>
+      </div>
+    </div>
+    
+    <div class="card">
+      <h3>🔧 Setup & Maintenance</h3>
+      <div class="api-link">
+        <a href="/api/setup-forces" target="_blank">⚙️ Setup Force Tables</a>
+        <p>Creates database tables for all forces</p>
+      </div>
+      <div class="api-link">
+        <a href="/api/migrate-data" target="_blank">🔄 Migrate Old Data</a>
+        <p>Transfer data from old table to new system</p>
+      </div>
+      <div class="api-link">
+        <a href="/api/migrate-fiat-to-gadidka" target="_blank">🔄 Migrate Fiat to Gadidka</a>
+        <p>Update platoon names from Fiat to Gadidka</p>
+      </div>
+    </div>
+    
+    <div class="card">
+      <h3>📊 Statistics</h3>
+      <div class="api-link">
+        <a href="/api/total-statistics" target="_blank">📈 Total Statistics</a>
+        <p>Overview across all forces</p>
+      </div>
+      <div class="api-link">
+        <a href="/api/check-soldiers" target="_blank">👥 Check Soldier Counts</a>
+        <p>Count soldiers in all tables</p>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    // Check API health on load
+    fetch('/api/health')
+      .then(response => response.json())
+      .then(data => {
+        console.log('API Health:', data);
+      })
+      .catch(error => {
+        console.log('API Health Check Failed:', error);
+      });
+  </script>
+</body>
+</html>
+  `);
 });
 
 // ================== MULTI-FORCE SETUP ==================
@@ -2055,7 +2226,8 @@ app.get('/api', (req, res) => {
         test_db: '/api/test-db (test database connection)',
         check_soldiers: '/api/check-soldiers (check soldier counts)',
         env: '/api/env (view environment variables)',
-        soldiers_count: '/api/soldiers-count/:force (get specific force count)'
+        soldiers_count: '/api/soldiers-count/:force (get specific force count)',
+        debug_files: '/debug-files (check file system)'
       },
       setup: '/api/setup-forces (creates tables for all forces)',
       migrate_fiat_gadidka: '/api/migrate-fiat-to-gadidka (migrate soldiers from Fiat to Gadidka)',
@@ -2105,4 +2277,5 @@ app.listen(PORT, () => {
   console.log(`\n🔍 Debug endpoints:`);
   console.log(`   • /api/test-db (test database connection)`);
   console.log(`   • /api/check-soldiers (check soldier counts)`);
+  console.log(`   • /debug-files (check file system)`);
 });
